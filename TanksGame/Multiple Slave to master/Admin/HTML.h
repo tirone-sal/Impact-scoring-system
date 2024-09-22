@@ -1,3 +1,5 @@
+#ifndef HTML_H
+#define HTML_H
 
 String html = R"(
   <!DOCTYPE html>
@@ -7,8 +9,6 @@ String html = R"(
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-A-Compatible" content="ie=edge">
     )";
-
-String refreshTag = R"(<meta http-equiv="refresh" content="5">)";
 
 String html2 = R"(
     <title>Document</title>
@@ -109,21 +109,27 @@ String teamPage = R"(
         </div>
         <br>
 
-        <label style="font-size: 20px;" for="tankNum">Enter the total number of Tanks</label>
+        <label style="font-size: 20px;" for="teamNum">Enter the total number of Teams</label>
+        <div>
+            <input type="text" name="teamNum" required>
+        </div>
+        <br>
+
+        <label style="font-size: 20px;" for="tankNum">Enter the total number of Players per Team</label>
         <div>
             <input type="text" name="tankNum" required>
         </div>
         <br>
 
-        <label style="font-size: 20px;" for="team1Name">Enter Team 1 Name</label>
+        <label style="font-size: 20px;" for="totalScore">Enter the total Score of the game</label>
         <div>
-            <input type="text" name="team1Name" required>
+            <input type="text" name="totalScore" required>
         </div>
         <br>
 
-        <label style="font-size: 20px;" for="team2Name">Enter Team 2 Name</label>
+        <label style="font-size: 20px;" for="targetNum">Enter the total number of Targets per Player</label>
         <div>
-            <input type="text" name="team2Name" required>
+            <input type="text" name="targetNum" required>
         </div>
         <br>
 
@@ -135,6 +141,8 @@ String teamPage = R"(
 </body>
 </html>
 )";
+
+
 
 String tankPage0 = 
 R"(
@@ -215,18 +223,90 @@ String startPage = R"(
 
 )";
 
-String scoreHead = R"(
+
+
+String htmlHeaderResult = R"(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tanks Game Score</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            background: linear-gradient(135deg, #34495e, #2c3e50);
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding-top: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            width: 95%;
+            max-width: 500px;
+            padding: 20px;
+            box-sizing: border-box;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+        }
+        h1 {
+            margin: 0;
+            padding: 10px;
+            font-size: 2em;
+            text-align: center;
+            color: #ecf0f1;
+        }
+        h2 {
+            font-size: 1.5em;
+            margin: 20px 0;
+            text-align: center;
+            color: #ecf0f1;
+        }
+        .team {
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        .team h3 {
+            font-size: 1.4em;
+            color: #f39c12;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        .player {
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            text-align: left;
+            display: flex;
+            justify-content: space-between;
+            padding: 15px;
+            font-size: 1.1em;
+        }
+        .player span {
+            display: inline-block;
+        }
+    </style>
+</head>
 <body>
-    <h1>Tanks Game</h1>
-
-    <h2>Game Type</h2>
-
-    <form action='/start' method='post'>
-      <div  id="submitButton">
-          <input class="button" style="background-color:  green;" type="submit" value="Fetch Score">
-      </div>
-    </form>
-
-    <h2>Game Time: 
+    <div class="container">
+        <h1>Tanks Game Score</h1>
 )";
 
+String htmlFooterResult = R"(
+    </div>
+</body>
+</html>
+)";
+
+#endif

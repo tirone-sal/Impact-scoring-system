@@ -1,37 +1,31 @@
-#include <esp_now.h>
-#include <WiFi.h>
-#include <SPI.h>
-#include <Wire.h>
-#include <nRF24L01.h>
-#include <esp_wifi.h>
-#include <RF24.h>
- 
-/* ID of this Brain */
-#define ID          1
-#define TANK_ID     1
 
-#define VOLT_PIN    (34U)
-#define RED_LED     (33U)
-#define GREEN_LED    35
+/**
+ * Brain.ino
+ * 
+ * This file contatins the important funcitons and declerations for the
+ * brain module of the tanks game to work with.
+ * 
+ * We can add the other function implementations such as the webpage 
+ * estimations as well as the other html tags in the file.
+ * 
+ * This will contain the next generation tags and scoreboards, which we are planning to implement
+ * in the second version.
+*/
 
-void SendNextionCommand(String object, String msg);
+/************** Includes *****************/
+#include "Brain1.h"
+#include "audio_module.h"
 
-double volt_measure()
-{
-  volatile int volt = analogRead(VOLT_PIN);// read the input
-  volatile double voltage = map(volt,0, 2600, 0, 7.4);// map 0-1023 to 0-2500 and add correction offset
-  return voltage + 1U;
-}
-
+/************** Globals *****************/
+Audio audio;
 int GameEndFlag = 0U;
 volatile float Voltage = 0U;
-
 /*
 * Last two members would be different
  
- For Slave Only change the last two members of the slaveMACAddress as follows:
+ For target Only change the last two members of the targetMACAddress as follows:
 	0xB1  (Brain Number) 
-	0x01  (Slave Number i.e 0x01,0x02, 0x03....)
+	0x01  (target Number i.e 0x01,0x02, 0x03....)
 	
  For Brain Address only iterate the last member of the Brain as:
 	0x01 for brain 1
@@ -39,39 +33,31 @@ volatile float Voltage = 0U;
 	and so on.............
 */
 
-// MAC addresses of slave to which score is needed to be sent.
-uint8_t slaveMACAddress[] = {0x32, 0xAE, 0xA4, 0x07, 0xB1, 0x01};
 
-// New mac address of Brain to communicate with salve via ESP NOW
-uint8_t newMACAddress[] =  {0x42, 0xAE, 0xA4, 0x07, 0x0D, 0x01};
-
-/**
- * @brief HIT Brief
- * If 
- * id = 1, front hit
- * id = 2, side hit
- * id = 3, back hit
- */
-
+uint8_t targetMACAddress[] = {0x32, 0xAE, 0xA4, 0x07, 0xB1, 0x01}; // MAC addresses of target to which score is needed to be sent.
+uint8_t newMACAddress[] =  {0x42, 0xAE, 0xA4, 0x07, 0x0D, 0x01}; // New mac address of Brain to communicate with salve via ESP NOW
 unsigned long StartTime = 0;
 unsigned long TotalTime = 0;
 unsigned long TimeLeft = 0;
-
-RF24 radio(4, 5); 
 const uint64_t address = 0xF0F0F0F0E1LL;
 int counter = 0;
+uint8_t scoresToBeMinus[5] = {0};
+uint8_t targetNum = 0;
 
 String TankName = "";
 String TeamName = "";
+RF24 radio(4, 5); 
  
 /************* Structure to receive data from Admin *************/
 struct StructureOfTeam
 {
   String team_name;
   int health;
-  unsigned char go = 0;
-  unsigned char time = 0;
-  unsigned char id = 0;
+  uint8_t go = 0;
+  uint8_t time = 0;
+  uint8_t id = 0;
+  uint8_t target_num = 0;
+  uint8_t targetScores[MAX_TARGETS] = {0};
 };
 
 StructureOfTeam TeamData;
@@ -87,23 +73,29 @@ struct StructureOfBrain
 
 StructureOfBrain BrainData;
 
-/************* Structure to receive data from Slave *************/
+/************* Structure to receive data from target *************/
 typedef struct StructureOfTargets 
 {
   int id;
-  int Score;
 } StructureOfTargets;
 
 /* Initial Score value */
 int Final_Score = 100;
 
-// Create a StructureOfTargets called rcvSlaveData
-StructureOfTargets rcvSlaveData;
+// Create a StructureOfTargets called rcvTargetData
+StructureOfTargets rcvTargetData;
 
 // Create peer interface
 esp_now_peer_info_t peerInfo;
 
-// callback when data is sent to the slave
+double volt_measure()
+{
+  volatile int volt = analogRead(VOLT_PIN);// read the input
+  volatile double voltage = map(volt,0, 2600, 0, 7.4);// map 0-1023 to 0-2500 and add correction offset
+  return voltage + 1U;
+}
+
+// callback when data is sent to the target
 void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) 
 {
   Serial.print("\r\nLast Packet Send Status:\t");
@@ -111,12 +103,10 @@ void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status)
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "Delivery Success" : "Delivery Fail");
 }
 
-// callback function that will be executed when data is received from the slave
+// callback function that will be executed when data is received from the target
 void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len) 
 {
-  // int rcvd_id;
-  int rcvd_score;
-  Serial.println("Score received from the admin");
+  Serial.println("A target has been HIT");
   
   if(GameEndFlag == 0)
   {
@@ -127,17 +117,15 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len)
     
     Serial.println(macStr);
 
-    memcpy(&rcvSlaveData, incomingData, sizeof(rcvSlaveData));
-    Serial.printf("Target board ID %u: %u bytes\n", rcvSlaveData.id, len);
+    memcpy(&rcvTargetData, incomingData, sizeof(rcvTargetData));
+    Serial.printf("Target board ID %u: %u bytes\n", rcvTargetData.id, len);
 
-    // Update the structures with the new incoming data
-    rcvd_score = rcvSlaveData.Score;
-    Serial.printf("Score value Received: %d \n", rcvd_score);
+    Serial.println("\n Sore to be minus from target 1 is : " + String(scoresToBeMinus[0]));
 
-    /* Check if new score value is less than zero or not */
-    if( (Final_Score - rcvd_score ) >= 0 ) 
+    /* Check if new score value is greater than zero or not */
+    if( (Final_Score - scoresToBeMinus[0]) >= 0 ) 
     {
-      Final_Score = Final_Score - rcvd_score;
+      Final_Score = Final_Score - scoresToBeMinus[0];
     }
     else
     {
@@ -148,28 +136,11 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len)
     SendNextionCommand("health", String(Final_Score));
     SendNextionCommand("health", String(Final_Score));
 
-    /********* Send Hit Status to the Nextion Display **********/
-    switch (rcvSlaveData.id)
-    {
-    case 1:
-      SendNextionCommand("t5", String("FRONT HIT"));
-      SendNextionCommand("t5", String("FRONT HIT"));
-      break;
-    case 2:
-      SendNextionCommand("t5", String("SIDE HIT"));
-      SendNextionCommand("t5", String("SIDE HIT"));
-      break;
-    case 3:
-      SendNextionCommand("t5", String("BACK HIT"));
-      SendNextionCommand("t5", String("BACK HIT"));
-      break;
-    
-    default:
-      break;
-    }
+    /* Send Hit Status to the Nextion Display */
+    SendNextionCommand("t5", String("FRONT HIT"));
+    SendNextionCommand("t5", String("FRONT HIT"));
 
-    
-    /********** Sending data to the admin **************/
+    /* Sending data to the admin */
 
     BrainData.counter = counter;
     BrainData.health = Final_Score;
@@ -189,9 +160,19 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len)
     Serial.println(" ");
     delay(100);
     
-    radio.write(&BrainData, sizeof(StructureOfBrain));
-    
-    Serial.println("Data Packet Sent");
+    while(1)
+    {
+      if(radio.write(&BrainData, sizeof(StructureOfBrain)))
+      {
+        Serial.println("Data Packet Sent");
+        break;
+      }
+      else
+      {
+        Serial.println("Data packet is not sent trying again in half second ");
+        delay(500);
+      }
+    }
 
     Serial.println("");
     
@@ -202,7 +183,7 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len)
     /************ Sending updated health to target **************/
 
     // Register peer
-    memcpy(peerInfo.peer_addr, slaveMACAddress, 6);
+    memcpy(peerInfo.peer_addr, targetMACAddress, 6);
     peerInfo.channel = 0;  
     peerInfo.encrypt = false;
     
@@ -216,11 +197,11 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len)
     
     // Send message via ESP-NOW
     Serial.println("*** Sending the Score now ****");
-    esp_err_t result = esp_now_send(slaveMACAddress, (uint8_t *) &Final_Score, sizeof(Final_Score));
+    esp_err_t result = esp_now_send(targetMACAddress, (uint8_t *) &Final_Score, sizeof(Final_Score));
     
     if (result == ESP_OK) 
     {
-      Serial.println("Sent Score to the slave");
+      Serial.println("Sent Score to the target");
     }
     else 
     {
@@ -229,6 +210,24 @@ void OnDataRecv(const uint8_t * mac_addr, const uint8_t *incomingData, int len)
   }
 
 }
+
+void SendNextionCommand(String object, String msg)
+{
+  String command = "";
+  command = object+".txt=\""+String(msg)+"\"";
+  Serial.print(command);
+  /**
+   * Put a delauy here for the Nextion display and confirm the 
+   * availability of the Nextion buffer.
+  */
+
+  Serial.write(0xff);
+  Serial.write(0xff);
+  Serial.write(0xff);
+
+  delay(20);
+}
+
  
 int recvData()
 {
@@ -241,7 +240,8 @@ int recvData()
   return 0;
 }
 
-void setup() {
+void setup() 
+{
   
   Serial.begin(9600);
   
@@ -259,7 +259,6 @@ void setup() {
     return;
   }
 
-  
   // Once ESPNow is successfully Init, we will register for recv CB to
   // get recv packer info
   esp_now_register_recv_cb(OnDataRecv);
@@ -274,11 +273,6 @@ void setup() {
   radio.setPALevel(RF24_PA_MIN);       //You can set this as minimum or maximum depending on the distance between the transmitter and receiver.
   radio.startListening();              //This sets the module as receiver
 
-  // pinMode(GREEN_LED, OUTPUT);
-  // digitalWrite(GREEN_LED, LOW);
-
-  // pinMode(RED_LED, OUTPUT);
-  // digitalWrite(RED_LED, LOW);
   pinMode(GREEN_LED, OUTPUT);
 
   /* Turning Green LED ON for a time */
@@ -286,65 +280,44 @@ void setup() {
   delay(2000);
   digitalWrite(GREEN_LED, 0);
 
-  // pinMode(VOLT_PIN, INPUT);
+  SendNextionCommand("start", String(" "));
+  SendNextionCommand("start", String(" "));
 
-  SendNextionCommand("start", String(" "));
-  SendNextionCommand("start", String(" "));
+  /************* Initializing the Audio module ******************/
+
+  Serial.println("INIT:  Initializing the Audio");
+  pinMode(SD_CS, OUTPUT);      
+  digitalWrite(SD_CS, HIGH);
+  SPI.begin(SPI_SCK, SPI_MISO, SPI_MOSI);
+
+  if(!SD.begin(SD_CS))
+  {
+    Serial.println("Error talking to SD card!");
+    while(true);  // end program
+  }
+
+  audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
+  audio.setVolume(15); // 0...21
+  // audio.connecttoFS(SD,"/Amaze.mp3");
 
 }
  
-void SendNextionCommand(String object, String msg)
-{
-  String command = "";
-  command = object+".txt=\""+String(msg)+"\"";
-  Serial.print(command);
-  /**
-   * Put a delauy here for the Nextion display and confirm the 
-   * availability of the Nextion buffer.
-  */
-
-  Serial.write(0xff);
-  Serial.write(0xff);
-  Serial.write(0xff);
-
-  delay(50); 
-}
-
 void loop() 
 {
-  // Voltage = volt_measure();
-
-  // Serial.println("Voltage is: " + String(Voltage));
-
-  // SendNextionCommand("t5",String(Voltage));
-  // SendNextionCommand("t5", String(Voltage));
-
-  // if(Voltage <= 3)
-  // {
-  //   while(1)
-  //   {
-  //     // Serial.println("*** ALERT: Voltage is down, voltage down ******");
-
-  //     digitalWrite(RED_LED, HIGH);
-  //     delay(500);
-  //     digitalWrite(RED_LED, LOW);
-  //     delay(500);
-  //   }
-  // }
-
-  /* When admin is just sending the data 
-  * but the game is yet to start */
   while(TeamData.go == 0)
   {
     if(recvData())
     {
+      Serial.println("Data received");
+      
       if( (TeamData.go == 0) and (TeamData.id == TANK_ID))
       {
-
         Serial.println("********** rcvd team tank: " + TeamData.team_name);
         Serial.print("Team Name = ");
         TeamName = TeamData.team_name.substring(0, TeamData.team_name.indexOf(" "));
         Serial.println(TeamName);
+
+        Serial.println("Tank ID: " + String(TeamData.id));
 
         Serial.print("Tank Name = ");
         TankName = TeamData.team_name.substring(TeamData.team_name.indexOf(" "), TeamData.team_name.length());
@@ -352,6 +325,16 @@ void loop()
          
         Serial.print("Health Given = ");
         Serial.println(TeamData.health);
+
+        Serial.print("Number of Targets Received: ");
+        targetNum = TeamData.target_num;
+        Serial.println(targetNum);
+        
+        for (int target = 0; target < targetNum; target++)
+        {
+          scoresToBeMinus[target] = TeamData.targetScores[target];
+          Serial.println("Target 1 Score: " + String(scoresToBeMinus[target]));
+        }
 
         /* Setting Final score equal to health */
         Final_Score = TeamData.health;
@@ -375,20 +358,18 @@ void loop()
         SendNextionCommand("start", String(" "));
         SendNextionCommand("start", String(" "));
 
-        // Register peer
-        memcpy(peerInfo.peer_addr, slaveMACAddress, 6);
+        memcpy(peerInfo.peer_addr, targetMACAddress, 6); // Register peer
         peerInfo.channel = 0;  
         peerInfo.encrypt = false;
-        
-        // Add peer        
+                
         if (esp_now_add_peer(&peerInfo) != ESP_OK)
         {
           Serial.println("Failed to add peer");
         }
         
-        // Send message via ESP-NOW
+        /* Sending the score to the targets */
         Serial.println("*** Sending the Score now ****");
-        esp_err_t result = esp_now_send(slaveMACAddress, (uint8_t *) &Final_Score, sizeof(Final_Score));
+        esp_err_t result = esp_now_send(targetMACAddress, (uint8_t *) &Final_Score, sizeof(Final_Score));
         
         if (result == ESP_OK) 
         {
@@ -419,6 +400,7 @@ void loop()
 
         radio.openWritingPipe(address); //Setting the address where we will send the data
         radio.setPALevel(RF24_PA_MIN);  //You can set it as minimum or maximum depending on the distance between the transmitter and receiver.
+        radio.setAutoAck(true);
         radio.stopListening();          //This sets the module as transmitter
 
         StartTime = millis();
@@ -428,7 +410,6 @@ void loop()
       }
     }
   }
-
 
   if( ((millis() - StartTime) / 1000) <= TotalTime )
   {
@@ -449,7 +430,6 @@ void loop()
       countdown = String(minute) + " : 0"+ String(seconds);
     }
     
-    
     Serial.println("");
     SendNextionCommand("time", String(countdown));
     SendNextionCommand("time", String(countdown));
@@ -465,7 +445,13 @@ void loop()
 
     /* TODO: Add the ending of game logic here */
     GameEndFlag = 1;
-    while(1);
+    while(1)
+    {
+      digitalWrite(GREEN_LED, HIGH);
+      delay(500);
+      digitalWrite(GREEN_LED, LOW);
+      delay(500);
+    }
   }
 
   delay(500);  
